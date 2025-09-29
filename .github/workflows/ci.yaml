@@ -244,6 +244,7 @@ jobs:
           if ! gh pr merge ${{ github.event.pull_request.number }} \
             --merge \
             --auto \
+            --delete-branch \
             --subject "release: v${{ env.version }}" \
             --body "Release v${{ env.version }}"; then
             echo "::error::Falha ao fazer merge da PR. Verifique os logs para mais detalhes."
@@ -279,9 +280,18 @@ jobs:
           fi
           
           # Criar a release
+          CHANGELOG=""
+          if [[ -f "CHANGELOG.md" ]]; then
+            CHANGELOG=$(grep -A 100 "# ${{ env.version }}" CHANGELOG.md | sed -n '/# /,/# /p' | sed '$d' | sed '1d')
+          fi
+          
+          if [[ -z "$CHANGELOG" ]]; then
+            CHANGELOG="Release v${{ env.version }}"
+          fi
+          
           if ! gh release create "v${{ env.version }}" \
             --title "Release v${{ env.version }}" \
-            --notes "Release v${{ env.version }}"; then
+            --notes "$CHANGELOG"; then
             echo "::error::Falha ao criar release. Verifique os logs para mais detalhes."
             exit 1
           fi
@@ -330,9 +340,8 @@ jobs:
             echo "::warning::Não foi possível confirmar o push para dev. Verifique manualmente."
           fi
           
-          echo "Limpando branch de release..."
-          # Deletar a branch de release
-          git push origin --delete ${{ env.release_branch }}
+          echo "Branch de release será excluída automaticamente após o merge..."
+          # A flag --delete-branch no gh pr merge já cuida da exclusão da branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
