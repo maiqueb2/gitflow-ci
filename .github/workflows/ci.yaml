@@ -29,9 +29,9 @@ jobs:
         id: check_branch_type
         run: |
           HEAD_REF="${{ github.event.pull_request.head.ref }}"
-          if [[ "$HEAD_REF" =~ ^feature/ ]]; then
+          if [[ "$HEAD_REF" =~ ^(feature|feat)/ ]]; then
             echo "branch_type=feature" >> $GITHUB_ENV
-            echo "feature_name=$(echo $HEAD_REF | sed 's/feature\///')" >> $GITHUB_ENV
+            echo "feature_name=$(echo $HEAD_REF | sed -E 's/(feature|feat)\///')" >> $GITHUB_ENV
           elif [[ "$HEAD_REF" =~ ^release/ ]]; then
             echo "branch_type=release" >> $GITHUB_ENV
             # Extrair a versão do nome da branch
@@ -87,13 +87,13 @@ jobs:
         if: env.approved == 'true' && env.branch_type == 'feature'
         run: |
           echo "Processando feature: ${{ env.feature_name }}"
-          # Fazer merge da PR para dev
+          # Fazer merge da PR para a branch de desenvolvimento
           gh pr merge ${{ github.event.pull_request.number }} \
             --merge \
             --auto \
             --delete-branch \
-            --subject "feat: merge ${{ env.feature_name }} into dev" \
-            --body "Merge automático da feature ${{ env.feature_name }} para dev"
+            --subject "feat: merge ${{ env.feature_name }}" \
+            --body "Merge automático da feature ${{ env.feature_name }} para a branch de desenvolvimento"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -124,16 +124,21 @@ jobs:
           
           echo "Sincronizando main com dev..."
           # Fazer fetch de todas as branches
-          git fetch origin main dev
+          # Determinar qual branch de desenvolvimento está sendo usada
+          DEV_BRANCH="dev"
+          if git ls-remote --heads origin development | grep -q 'development'; then
+            DEV_BRANCH="development"
+          fi
+          git fetch origin main $DEV_BRANCH
           
-          # Fazer checkout da dev
-          git checkout dev
+          # Fazer checkout da branch de desenvolvimento
+          git checkout $DEV_BRANCH
           
           # Fazer merge da main
-          git merge origin/main --no-ff -m "chore: sync main into dev after release v${{ env.version }}"
+          git merge origin/main --no-ff -m "chore: sync main into $DEV_BRANCH after release v${{ env.version }}"
           
-          # Fazer push direto para dev
-          git push origin dev
+          # Fazer push direto para a branch de desenvolvimento
+          git push origin $DEV_BRANCH
           
           # Aguardar o merge e sincronização serem concluídos
           sleep 5
@@ -171,16 +176,21 @@ jobs:
           
           echo "Sincronizando main com dev..."
           # Fazer fetch de todas as branches
-          git fetch origin main dev
+          # Determinar qual branch de desenvolvimento está sendo usada
+          DEV_BRANCH="dev"
+          if git ls-remote --heads origin development | grep -q 'development'; then
+            DEV_BRANCH="development"
+          fi
+          git fetch origin main $DEV_BRANCH
           
-          # Fazer checkout da dev
-          git checkout dev
+          # Fazer checkout da branch de desenvolvimento
+          git checkout $DEV_BRANCH
           
           # Fazer merge da main
-          git merge origin/main --no-ff -m "chore: sync main into dev after hotfix v${{ env.version }}"
+          git merge origin/main --no-ff -m "chore: sync main into $DEV_BRANCH after hotfix v${{ env.version }}"
           
-          # Fazer push direto para dev
-          git push origin dev
+          # Fazer push direto para a branch de desenvolvimento
+          git push origin $DEV_BRANCH
           
           # Aguardar o merge e sincronização serem concluídos
           sleep 5

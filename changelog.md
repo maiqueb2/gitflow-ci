@@ -1,3 +1,6 @@
+# 0.2.1
+Enhacements for error handling.
+
 # 0.2.0
 Add simple version of ci.
 
