@@ -291,7 +291,10 @@ jobs:
           
           if ! gh release create "v${{ env.version }}" \
             --title "Release v${{ env.version }}" \
-            --notes "$CHANGELOG"; then
+            --notes "$CHANGELOG" \
+            --target main \
+            --latest \
+            --repo "${{ github.repository }}"; then
             echo "::error::Falha ao criar release. Verifique os logs para mais detalhes."
             exit 1
           fi
@@ -388,10 +391,22 @@ jobs:
             exit 1
           fi
           
-          # Criar a release
+          # Criar a release para o hotfix
+          CHANGELOG=""
+          if [[ -f "CHANGELOG.md" ]]; then
+            CHANGELOG=$(grep -A 100 "# ${{ env.version }}" CHANGELOG.md | sed -n '/# /,/# /p' | sed '$d' | sed '1d')
+          fi
+          
+          if [[ -z "$CHANGELOG" ]]; then
+            CHANGELOG="Hotfix v${{ env.version }}"
+          fi
+          
           if ! gh release create "v${{ env.version }}" \
             --title "Hotfix v${{ env.version }}" \
-            --notes "Hotfix v${{ env.version }}"; then
+            --notes "$CHANGELOG" \
+            --target main \
+            --latest \
+            --repo "${{ github.repository }}"; then
             echo "::error::Falha ao criar release. Verifique os logs para mais detalhes."
             exit 1
           fi
