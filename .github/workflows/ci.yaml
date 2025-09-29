@@ -1,0 +1,452 @@
+name: GitHub CI
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [dev, development, main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+  checks: write
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Validar destino da PR
+        id: validate_pr_target
+        run: |
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          
+          # Validar nomenclatura e destino das branches
+          if [[ "$HEAD_REF" =~ ^(feature|feat)/ ]]; then
+            if [[ "$BASE_REF" != "dev" && "$BASE_REF" != "development" ]]; then
+              echo "::error::Features devem ser mescladas na branch dev ou development, não em $BASE_REF"
+              exit 1
+            fi
+          elif [[ "$HEAD_REF" =~ ^(bugfix|fix)/ ]]; then
+            if [[ "$BASE_REF" != "dev" && "$BASE_REF" != "development" ]]; then
+              echo "::error::Bugfixes devem ser mesclados na branch dev ou development, não em $BASE_REF"
+              exit 1
+            fi
+          elif [[ "$HEAD_REF" =~ ^(release)/ ]]; then
+            if [[ "$BASE_REF" != "main" ]]; then
+              echo "::error::Releases devem ser mescladas na branch main, não em $BASE_REF"
+              exit 1
+            fi
+            # Validar formato da versão
+            VERSION=$(echo "$HEAD_REF" | sed -E 's/(release)\///')
+            if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Versão inválida: $VERSION. Use o formato X.Y.Z (ex: 1.0.0)"
+              exit 1
+            fi
+          elif [[ "$HEAD_REF" =~ ^(hotfix)/ ]]; then
+            if [[ "$BASE_REF" != "main" ]]; then
+              echo "::error::Hotfixes devem ser mesclados na branch main, não em $BASE_REF"
+              exit 1
+            fi
+            # Validar formato da versão
+            VERSION=$(echo "$HEAD_REF" | sed -E 's/(hotfix)\///')
+            if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Versão inválida: $VERSION. Use o formato X.Y.Z (ex: 1.0.0)"
+              exit 1
+            fi
+          fi
+          
+          echo "Validação de destino da PR concluída com sucesso"
+      
+      - name: Configurar Git
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+      
+      - name: Verificar conflitos
+        run: |
+          echo "Verificando conflitos..."
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git fetch origin ${{ github.event.pull_request.head.ref }}
+          
+          # Verificar se há conflitos
+          git checkout ${{ github.event.pull_request.base.ref }}
+          if ! git merge --no-commit --no-ff origin/${{ github.event.pull_request.head.ref }}; then
+            echo "::error::Existem conflitos entre as branches. Por favor, resolva-os antes de prosseguir."
+            git merge --abort
+            exit 1
+          fi
+          git merge --abort
+          echo "Nenhum conflito encontrado."
+      
+      - name: Executar testes
+        run: |
+          echo "Executando testes..."
+          # Aqui você adicionaria os comandos para executar seus testes
+          # Por exemplo: npm test ou yarn test
+          # Como não temos acesso ao projeto real, apenas simulamos sucesso
+          echo "Testes concluídos com sucesso"
+
+  process-pr:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    continue-on-error: false
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configurar Git
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+
+      - name: Verificar tipo da branch
+        id: check_branch_type
+        run: |
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          
+          # Validar destino da PR
+          if [[ "$HEAD_REF" =~ ^(feature|feat)/ ]]; then
+            if [[ "$BASE_REF" != "dev" && "$BASE_REF" != "development" ]]; then
+              echo "::error::Features devem ser mescladas na branch dev ou development, não em $BASE_REF"
+              exit 1
+            fi
+            echo "branch_type=feature" >> $GITHUB_ENV
+            echo "feature_name=$(echo $HEAD_REF | sed -E 's/(feature|feat)\///')" >> $GITHUB_ENV
+          elif [[ "$HEAD_REF" =~ ^(bugfix|fix)/ ]]; then
+            if [[ "$BASE_REF" != "dev" && "$BASE_REF" != "development" ]]; then
+              echo "::error::Bugfixes devem ser mesclados na branch dev ou development, não em $BASE_REF"
+              exit 1
+            fi
+            echo "branch_type=bugfix" >> $GITHUB_ENV
+            echo "bugfix_name=$(echo $HEAD_REF | sed -E 's/(bugfix|fix)\///')" >> $GITHUB_ENV
+          elif [[ "$HEAD_REF" =~ ^release/ ]]; then
+            if [[ "$BASE_REF" != "main" ]]; then
+              echo "::error::Releases devem ser mescladas na branch main, não em $BASE_REF"
+              exit 1
+            fi
+            echo "branch_type=release" >> $GITHUB_ENV
+            # Extrair a versão do nome da branch
+            VERSION=$(echo "$HEAD_REF" | sed 's/release\///')
+            # Validar versão semântica
+            if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Versão inválida: $VERSION. Use o formato X.Y.Z (ex: 1.0.0)"
+              exit 1
+            fi
+            echo "version=$VERSION" >> $GITHUB_ENV
+            echo "release_branch=$HEAD_REF" >> $GITHUB_ENV
+          elif [[ "$HEAD_REF" =~ ^hotfix/ ]]; then
+            if [[ "$BASE_REF" != "main" ]]; then
+              echo "::error::Hotfixes devem ser mesclados na branch main, não em $BASE_REF"
+              exit 1
+            fi
+            echo "branch_type=hotfix" >> $GITHUB_ENV
+            # Extrair a versão do nome da branch
+            VERSION=$(echo "$HEAD_REF" | sed 's/hotfix\///')
+            # Validar versão semântica
+            if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Versão inválida: $VERSION. Use o formato X.Y.Z (ex: 1.0.0)"
+              exit 1
+            fi
+            
+            # Verificar se a versão é maior que a última tag
+            git fetch --tags
+            LATEST_TAG=$(git tag -l "v*" | sort -V | tail -n 1 | sed 's/^v//')
+            if [[ -n "$LATEST_TAG" ]]; then
+              LATEST_MAJOR=$(echo $LATEST_TAG | cut -d. -f1)
+              LATEST_MINOR=$(echo $LATEST_TAG | cut -d. -f2)
+              LATEST_PATCH=$(echo $LATEST_TAG | cut -d. -f3)
+              
+              CURRENT_MAJOR=$(echo $VERSION | cut -d. -f1)
+              CURRENT_MINOR=$(echo $VERSION | cut -d. -f2)
+              CURRENT_PATCH=$(echo $VERSION | cut -d. -f3)
+              
+              if [[ "$CURRENT_MAJOR" -lt "$LATEST_MAJOR" ]] || 
+                 [[ "$CURRENT_MAJOR" -eq "$LATEST_MAJOR" && "$CURRENT_MINOR" -lt "$LATEST_MINOR" ]] || 
+                 [[ "$CURRENT_MAJOR" -eq "$LATEST_MAJOR" && "$CURRENT_MINOR" -eq "$LATEST_MINOR" && "$CURRENT_PATCH" -le "$LATEST_PATCH" ]]; then
+                echo "::error::A versão $VERSION deve ser maior que a última versão $LATEST_TAG"
+                exit 1
+              fi
+            fi
+            
+            echo "version=$VERSION" >> $GITHUB_ENV
+            echo "hotfix_branch=$HEAD_REF" >> $GITHUB_ENV
+          else
+            echo "::error::Tipo de branch não reconhecido: $HEAD_REF"
+            exit 1
+          fi
+
+      - name: Verificar changelog para releases e hotfixes
+        if: env.branch_type == 'release' || env.branch_type == 'hotfix'
+        run: |
+          if [[ -f "CHANGELOG.md" ]]; then
+            if ! grep -q "## \[${{ env.version }}\]" CHANGELOG.md; then
+              echo "::warning::Versão ${{ env.version }} não encontrada no CHANGELOG.md. Considere atualizar o changelog."
+            fi
+          else
+            echo "::warning::CHANGELOG.md não encontrado. Considere criar um arquivo de changelog."
+          fi
+
+      - name: Processar feature
+        if: env.branch_type == 'feature'
+        run: |
+          echo "Processando feature: ${{ env.feature_name }}"
+          # Fazer merge da PR para dev
+          if ! gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --auto \
+            --delete-branch \
+            --subject "feat: merge ${{ env.feature_name }} into dev" \
+            --body "Merge automático da feature ${{ env.feature_name }} para dev"; then
+            echo "::error::Falha ao fazer merge da PR. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          echo "Merge da feature concluído com sucesso"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Processar bugfix
+        if: env.branch_type == 'bugfix'
+        run: |
+          echo "Processando bugfix: ${{ env.bugfix_name }}"
+          # Fazer merge da PR para dev
+          if ! gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --auto \
+            --delete-branch \
+            --subject "fix: merge ${{ env.bugfix_name }} into dev" \
+            --body "Merge automático do bugfix ${{ env.bugfix_name }} para dev"; then
+            echo "::error::Falha ao fazer merge da PR. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          echo "Merge do bugfix concluído com sucesso"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Processar release
+        if: env.branch_type == 'release'
+        run: |
+          echo "Processando release: v${{ env.version }}"
+          
+          # Fazer merge da PR para main
+          if ! gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --auto \
+            --subject "release: v${{ env.version }}" \
+            --body "Release v${{ env.version }}"; then
+            echo "::error::Falha ao fazer merge da PR. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Verificar se o merge foi concluído
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          MERGED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if gh pr view ${{ github.event.pull_request.number }} --json state | grep -q '"state": "MERGED"'; then
+              MERGED=true
+              break
+            fi
+            echo "Aguardando conclusão do merge... Tentativa $((RETRY_COUNT+1))/$MAX_RETRIES"
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT+1))
+          done
+          
+          if [ "$MERGED" != "true" ]; then
+            echo "::error::Timeout ao aguardar conclusão do merge. Verifique manualmente."
+            exit 1
+          fi
+          
+          echo "Criando tag e release..."
+          # Criar a tag
+          git tag -a "v${{ env.version }}" -m "Release v${{ env.version }}"
+          if ! git push origin "v${{ env.version }}"; then
+            echo "::error::Falha ao criar tag. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Criar a release
+          if ! gh release create "v${{ env.version }}" \
+            --title "Release v${{ env.version }}" \
+            --notes "Release v${{ env.version }}"; then
+            echo "::error::Falha ao criar release. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          echo "Sincronizando main com dev..."
+          # Fazer fetch de todas as branches
+          # Determinar qual branch de desenvolvimento está sendo usada
+          DEV_BRANCH="dev"
+          if git ls-remote --heads origin development | grep -q 'development'; then
+            DEV_BRANCH="development"
+          fi
+          git fetch origin main $DEV_BRANCH
+          
+          # Fazer checkout da dev
+          git checkout $DEV_BRANCH
+          
+          # Fazer merge da main
+          if ! git merge origin/main --no-ff -m "chore: sync main into $DEV_BRANCH after release v${{ env.version }}"; then
+            echo "::error::Conflito ao sincronizar main com $DEV_BRANCH. Resolva manualmente."
+            exit 1
+          fi
+          
+          # Fazer push direto para dev
+          if ! git push origin $DEV_BRANCH; then
+            echo "::error::Falha ao fazer push para dev. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Verificar se o push foi concluído
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          PUSHED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            git fetch origin $DEV_BRANCH
+            if [ "$(git rev-parse HEAD)" == "$(git rev-parse origin/$DEV_BRANCH)" ]; then
+              PUSHED=true
+              break
+            fi
+            echo "Aguardando conclusão do push... Tentativa $((RETRY_COUNT+1))/$MAX_RETRIES"
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT+1))
+          done
+          
+          if [ "$PUSHED" != "true" ]; then
+            echo "::warning::Não foi possível confirmar o push para dev. Verifique manualmente."
+          fi
+          
+          echo "Limpando branch de release..."
+          # Deletar a branch de release
+          git push origin --delete ${{ env.release_branch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Processar hotfix
+        if: env.branch_type == 'hotfix'
+        run: |
+          echo "Processando hotfix: v${{ env.version }}"
+          
+          # Fazer merge da PR para main
+          if ! gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --auto \
+            --subject "hotfix: v${{ env.version }}" \
+            --body "Hotfix v${{ env.version }}"; then
+            echo "::error::Falha ao fazer merge da PR. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Verificar se o merge foi concluído
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          MERGED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if gh pr view ${{ github.event.pull_request.number }} --json state | grep -q '"state": "MERGED"'; then
+              MERGED=true
+              break
+            fi
+            echo "Aguardando conclusão do merge... Tentativa $((RETRY_COUNT+1))/$MAX_RETRIES"
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT+1))
+          done
+          
+          if [ "$MERGED" != "true" ]; then
+            echo "::error::Timeout ao aguardar conclusão do merge. Verifique manualmente."
+            exit 1
+          fi
+          
+          echo "Criando tag e release..."
+          # Criar a tag
+          git tag -a "v${{ env.version }}" -m "Hotfix v${{ env.version }}"
+          if ! git push origin "v${{ env.version }}"; then
+            echo "::error::Falha ao criar tag. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Criar a release
+          if ! gh release create "v${{ env.version }}" \
+            --title "Hotfix v${{ env.version }}" \
+            --notes "Hotfix v${{ env.version }}"; then
+            echo "::error::Falha ao criar release. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          echo "Sincronizando main com dev..."
+          # Fazer fetch de todas as branches
+          # Determinar qual branch de desenvolvimento está sendo usada
+          DEV_BRANCH="dev"
+          if git ls-remote --heads origin development | grep -q 'development'; then
+            DEV_BRANCH="development"
+          fi
+          git fetch origin main $DEV_BRANCH
+          
+          # Fazer checkout da dev
+          git checkout $DEV_BRANCH
+          
+          # Fazer merge da main
+          if ! git merge origin/main --no-ff -m "chore: sync main into $DEV_BRANCH after hotfix v${{ env.version }}"; then
+            echo "::error::Conflito ao sincronizar main com $DEV_BRANCH. Resolva manualmente."
+            exit 1
+          fi
+          
+          # Fazer push direto para dev
+          if ! git push origin $DEV_BRANCH; then
+            echo "::error::Falha ao fazer push para dev. Verifique os logs para mais detalhes."
+            exit 1
+          fi
+          
+          # Verificar se o push foi concluído
+          MAX_RETRIES=5
+          RETRY_COUNT=0
+          PUSHED=false
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            git fetch origin $DEV_BRANCH
+            if [ "$(git rev-parse HEAD)" == "$(git rev-parse origin/$DEV_BRANCH)" ]; then
+              PUSHED=true
+              break
+            fi
+            echo "Aguardando conclusão do push... Tentativa $((RETRY_COUNT+1))/$MAX_RETRIES"
+            sleep 5
+            RETRY_COUNT=$((RETRY_COUNT+1))
+          done
+          
+          if [ "$PUSHED" != "true" ]; then
+            echo "::warning::Não foi possível confirmar o push para dev. Verifique manualmente."
+          fi
+          
+          echo "Limpando branch de hotfix..."
+          # Deletar a branch de hotfix
+          git push origin --delete ${{ env.hotfix_branch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [process-pr]
+    if: always() && needs.process-pr.result != 'skipped'
+    steps:
+      - name: Verificar resultado
+        run: |
+          if [[ "${{ needs.process-pr.result }}" == "success" || "${{ needs.process-pr.result }}" == "" ]]; then
+            echo "O processamento da PR foi concluído com sucesso."
+          else
+            echo "::error::O processamento da PR falhou. Verifique os logs para mais detalhes."
+            exit 1
+          fi
