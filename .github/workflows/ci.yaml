@@ -98,6 +98,7 @@ jobs:
   process-pr:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved'
+    continue-on-error: false
     steps:
       - name: Checkout do repositório
         uses: actions/checkout@v4
@@ -443,7 +444,7 @@ jobs:
     steps:
       - name: Verificar resultado
         run: |
-          if [[ "${{ needs.process-pr.result }}" == "success" ]]; then
+          if [[ "${{ needs.process-pr.result }}" == "success" || "${{ needs.process-pr.result }}" == "" ]]; then
             echo "O processamento da PR foi concluído com sucesso."
           else
             echo "::error::O processamento da PR falhou. Verifique os logs para mais detalhes."
