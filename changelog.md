@@ -1,3 +1,6 @@
+# 0.2.0
+Add simple version of ci.
+
 # 0.1.2.
 Fix release generation.
 
