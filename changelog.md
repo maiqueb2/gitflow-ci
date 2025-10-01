@@ -1,3 +1,9 @@
+# 0.2.1
+Enhacements for error handling.
+- Adicionado suporte para merge automático de bugfixes
+- Melhorada a remoção automática de branches após merge
+- Atualizada documentação do fluxo GitFlow
+
 # 0.2.0
 Add simple version of ci.
 

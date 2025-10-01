@@ -32,6 +32,10 @@ jobs:
           if [[ "$HEAD_REF" =~ ^(feature|feat)/ ]]; then
             echo "branch_type=feature" >> $GITHUB_ENV
             echo "feature_name=$(echo $HEAD_REF | sed -E 's/(feature|feat)\///')" >> $GITHUB_ENV
+          elif [[ "$HEAD_REF" =~ ^(bugfix|bug|fix)/ ]]; then
+            echo "branch_type=bugfix" >> $GITHUB_ENV
+            echo "bugfix_name=$(echo $HEAD_REF | sed -E 's/(bugfix|bug|fix)\///')" >> $GITHUB_ENV
+            echo "bugfix_branch=$HEAD_REF" >> $GITHUB_ENV
           elif [[ "$HEAD_REF" =~ ^release/ ]]; then
             echo "branch_type=release" >> $GITHUB_ENV
             # Extrair a versão do nome da branch
@@ -97,6 +101,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Processar bugfix
+        if: env.approved == 'true' && env.branch_type == 'bugfix'
+        run: |
+          echo "Processando bugfix: ${{ env.bugfix_name }}"
+          # Fazer merge da PR para a branch de desenvolvimento
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --merge \
+            --auto \
+            --delete-branch \
+            --subject "fix: merge ${{ env.bugfix_name }}" \
+            --body "Merge automático do bugfix ${{ env.bugfix_name }} para a branch de desenvolvimento"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Processar release
         if: env.approved == 'true' && env.branch_type == 'release'
         run: |
@@ -106,6 +124,7 @@ jobs:
           gh pr merge ${{ github.event.pull_request.number }} \
             --merge \
             --auto \
+            --delete-branch \
             --subject "release: v${{ env.version }}" \
             --body "Release v${{ env.version }}"
           
@@ -143,9 +162,7 @@ jobs:
           # Aguardar o merge e sincronização serem concluídos
           sleep 5
           
-          echo "Limpando branch de release..."
-          # Deletar a branch de release
-          git push origin --delete ${{ env.release_branch }}
+          # A branch de release já foi deletada automaticamente pelo merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -158,6 +175,7 @@ jobs:
           gh pr merge ${{ github.event.pull_request.number }} \
             --merge \
             --auto \
+            --delete-branch \
             --subject "hotfix: v${{ env.version }}" \
             --body "Hotfix v${{ env.version }}"
           
@@ -195,8 +213,6 @@ jobs:
           # Aguardar o merge e sincronização serem concluídos
           sleep 5
           
-          echo "Limpando branch de hotfix..."
-          # Deletar a branch de hotfix
-          git push origin --delete ${{ env.hotfix_branch }}
+          # A branch de hotfix já foi deletada automaticamente pelo merge
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
